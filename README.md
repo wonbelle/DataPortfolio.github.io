@@ -65,10 +65,8 @@ LLM 기반 작업 자동화, 알고리즘 트레이딩, Stable Diffusion 모델 
 
 ## 📫 Contact
 
-- GitHub: [github.com/yourusername](https://github.com/yourusername)
-- Email: your.email@example.com  
-- Resume: 요청 시 제공 가능  
-- 현재 DEX Consulting 채용 지원 중
+- GitHub: [github.com/wonbelle](https://github.com/wonbelle)
+- Email: lwj000420@gmail.com
 
 ---
 
