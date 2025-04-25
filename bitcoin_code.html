@@ -22,15 +22,153 @@
 
   <section>
     <pre><code>
-import requests
-import jwt
-import uuid
-import hashlib
-...
-(생략하지 말고 전체 코드 붙여넣기)
-...
-if __name__ == '__main__':
-    simulated_trading()
+        비트 코인 자동 매매 테스트 코드
+
+        import requests
+        import jwt
+        import uuid
+        import hashlib
+        import time
+        import pandas as pd
+        import numpy as np
+        from urllib.parse import urlencode
+        import ta  # 기술적 분석 라이브러리
+        from IPython.display import clear_output  
+        import random
+        
+        # 업비트 API 키 설정 (환경 변수 사용 가능)
+        access_key = '본인의 access_key 넣으시면 됩니다'
+        secret_key = '본인의 secret_key 넣으시면 됩니다'
+        server_url = 'https://api.upbit.com'
+        
+        # 설정값 (손절 & 익절 비율, 요청 간격)
+        TRADING_FEE = 0.0005  # 0.05% 거래 수수료
+        STOP_PROFIT_RATIO = 0.04  # 4% 익절
+        STOP_LOSS_RATIO = 0.02  # 2% 손절
+        REQUEST_INTERVAL = 2  # API 요청 간격 (초)
+        RETRY_WAIT = 10  # 429 오류 발생 시 재시도 대기 시간 (초)
+        
+        # API 요청을 위한 헤더 생성 함수
+        def get_headers(query=None):
+            payload = {'access_key': access_key, 'nonce': str(uuid.uuid4())}
+            if query:
+                query_string = urlencode(query).encode()
+                m = hashlib.sha512()
+                m.update(query_string)
+                query_hash = m.hexdigest()
+                payload['query_hash'] = query_hash
+                payload['query_hash_alg'] = 'SHA512'
+            jwt_token = jwt.encode(payload, secret_key)
+            headers = {'Authorization': f'Bearer {jwt_token}'}
+            return headers
+        
+        # API 요청 함수 (429 백오프 적용)
+        def safe_api_request(url, params=None):
+            for attempt in range(5):
+                try:
+                    res = requests.get(url, headers={'accept': 'application/json'}, params=params, timeout=10)
+                    if res.status_code == 429:
+                        wait_time = RETRY_WAIT * (2 ** attempt) + random.uniform(0, 1)
+                        print(f" API 요청 제한 (429): {wait_time:.1f}초 후 재시도...")
+                        time.sleep(wait_time)
+                        continue
+                    res.raise_for_status()
+                    return res.json()
+                except Exception as e:
+                    print(f" API 요청 실패: {e}")
+                    time.sleep(RETRY_WAIT)
+            return None
+        
+        # 실시간 가격 가져오기
+        def get_current_price(market):
+            url = f"{server_url}/v1/ticker"
+            data = safe_api_request(url, {"markets": market})
+            return data[0]['trade_price'] if data else None
+        
+        # 특정 코인의 과거 데이터 가져오기
+        def get_price_data(market, count=50):
+            url = f"{server_url}/v1/candles/minutes/60"
+            data = safe_api_request(url, {"market": market, "count": count})
+            if not data:
+                return None
+            df = pd.DataFrame(data)
+            df['candle_date_time_kst'] = pd.to_datetime(df['candle_date_time_kst'])
+            df.set_index('candle_date_time_kst', inplace=True)
+            return df[['high_price', 'low_price', 'trade_price', 'candle_acc_trade_volume']].rename(columns={'trade_price': 'close'})
+        
+        # 매수 대상 찾기
+        def get_best_market():
+            url = f"{server_url}/v1/market/all"
+            headers = {'accept': 'application/json'}
+            
+            try:
+                res = requests.get(url, headers=headers, timeout=10)
+                res.raise_for_status()
+                markets = [m['market'] for m in res.json() if m['market'].startswith(('KRW-', 'BTC-', 'USDT-'))]
+                
+                for market in markets[:150]:  
+                    if analyze_chart(market):
+                        print(f" 매수 대상 코인 발견: {market}")
+                        return market
+                    time.sleep(REQUEST_INTERVAL)
+                
+                print(" 적절한 매수 대상이 없습니다.")
+                return None
+            except Exception as e:
+                print(f" 시장 데이터 가져오기 실패: {e}")
+                return None
+        
+        # 기술적 분석 (볼린저 밴드, 거래량 증가율 추가)
+        def analyze_chart(market):
+            df = get_price_data(market, count=50)
+            if df is None or df.empty:
+                return False
+        
+            df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
+            df['macd'] = ta.trend.MACD(df['close']).macd()
+            df['macd_signal'] = ta.trend.MACD(df['close']).macd_signal()
+            df['cci'] = ta.trend.CCIIndicator(df['high_price'], df['low_price'], df['close'], window=20).cci()
+            df['bollinger_low'] = ta.volatility.BollingerBands(df['close']).bollinger_lband()
+            df['volume_change'] = df['candle_acc_trade_volume'].pct_change()
+            
+            return (
+                df['rsi'].iloc[-1] < 65 and
+                df['macd'].iloc[-1] >= df['macd_signal'].iloc[-1] - 0.001 and
+                df['cci'].iloc[-1] > -250 and
+                df['volume_change'].iloc[-1] > 0.3 and
+                df['close'].iloc[-1] < df['bollinger_low'].iloc[-1]
+            )
+        
+        # 자동 매매 실행 (실제 시장 데이터에서 거래 시뮬레이션)
+        def simulated_trading(initial_balance=1000000):
+            market = get_best_market()
+            if market is None:
+                print(" 적절한 거래 코인을 찾을 수 없습니다.")
+                return
+            
+            balance = initial_balance
+            position = balance / get_current_price(market)
+            entry_price = get_current_price(market)
+            print(f" 가상 매수 실행: {market} - {entry_price} 원")
+            
+            while True:
+                current_price = get_current_price(market)
+                profit_ratio = (current_price - entry_price) / entry_price
+                
+                if profit_ratio >= STOP_PROFIT_RATIO or profit_ratio <= -STOP_LOSS_RATIO:
+                    balance = position * current_price * (1 - TRADING_FEE)
+                    print(f" 가상 매도 실행: {market} - {current_price} 원")
+                    break
+                
+                clear_output(wait=True)
+                print(f"현재 코인: {market} | 현재 가격: {current_price} 원 | 수익률: {profit_ratio * 100:.2f}%")
+                time.sleep(REQUEST_INTERVAL)
+        
+        # 실행
+        if __name__ == '__main__':
+            simulated_trading()
+        
+        
     </code></pre>
   </section>
 
