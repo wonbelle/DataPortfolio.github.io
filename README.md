@@ -47,7 +47,7 @@ LLM 기반 작업 자동화, 알고리즘 트레이딩, Stable Diffusion 모델 
 
 ## 🌐 Portfolio Website
 
-> 👉 [포트폴리오 메인 페이지 바로가기](https://DataPortfolio.github.io/)
+> 👉 [포트폴리오 메인 페이지 바로가기]([https://DataPortfolio.github.io/](https://wonbelle.github.io/DataPortfolio.github.io/))
 
 ---
 
